@@ -10,6 +10,7 @@ using Test
     @testset "nonlinear_solvers" begin include("nonlinear_solvers_tests.jl") end
     @testset "ode_solvers" begin include("ode_solvers_tests.jl") end
     @testset "smoothers" begin include("smoothers_tests.jl") end
+    @testset "krylov_solvers" begin include("krylov_solvers_tests.jl") end
     @testset "amg" begin include("amg_tests.jl") end
 end
 
