@@ -1524,3 +1524,14 @@ function renumber(a::PVector,row_partition_2;renumber_local_indices=Val(true))
     PVector(values,row_partition_2)
 end
 
+function LinearAlgebra.axpy!(a::Number,x::PVector,y::PVector)
+    y .+= a .* x
+    y
+end
+
+function LinearAlgebra.axpby!(a::Number,x::PVector,b::Number,y::PVector)
+    y .= a .* x .+ b .* y
+    y
+end
+
+

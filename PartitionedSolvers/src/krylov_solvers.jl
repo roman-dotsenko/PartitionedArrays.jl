@@ -206,7 +206,8 @@ function pcg_step(x,ws,b,phase=:start;kwargs...)
         phase = :advance
         copyto!(r,b)
         mul!(s,A,x)
-        r .-= s
+        axpy!(-one(eltype(s)),s,r)
+        #r .-= s
         current = norm(r)
         target = max(reltol*current,abstol)
         dx .= zero(eltype(dx))
@@ -218,12 +219,15 @@ function pcg_step(x,ws,b,phase=:start;kwargs...)
     ρ_prev = ρ
     ρ = dot(r,u)
     β = ρ / ρ_prev
-    dx .= u .+ β .* dx
+    axpby!(one(eltype(u)),u,β,dx)
+    #dx .= u .+ β .* dx
     s = u
     mul!(s,A,dx)
     α = ρ / dot(s,dx)
-    x .+= α .* dx
-    r .-= α .* s
+    axpy!(α,dx,x)
+    #x .+= α .* dx
+    axpy!(-α,s,r)
+    #r .-= α .* s
     current = norm(r)
     iteration += 1
     current = norm(r)
