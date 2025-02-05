@@ -68,7 +68,7 @@ function update(o::KrylovOptions;kwargs...)
     KrylovOptions(iterations,abstol,reltol,norm,Pl,update_Pl,verbose,output_prefix)
 end
 
-function pcg_state(p)
+function cg_state(p)
     x = solution(p)
     A = matrix(p)
     dx = similar(x,axes(A,2))
@@ -181,14 +181,14 @@ function print_progress(a::KrylovWorkspace)
     v && @printf "%s%10i %10i %10.2e %10.2e\n" s iteration iterations current target
 end
 
-function pcg(p;kwargs...)
+function cg(p;kwargs...)
     options = krylov_options(p;kwargs...)
-    state = pcg_state(p)
+    state = cg_state(p)
     workspace = KrylovWorkspace(options,state)
-    linear_solver(pcg_update,pcg_step,p,workspace)
+    linear_solver(cg_update,cg_step,p,workspace)
 end
 
-function pcg_update(ws,A)
+function cg_update(ws,A)
     (;Pl,update_Pl) = ws.options
     if update_Pl
         Pl = update(Pl,matrix=A)
@@ -197,7 +197,7 @@ function pcg_update(ws,A)
     update(ws;iteration,Pl,A)
 end
 
-function pcg_step(x,ws,b,phase=:start;kwargs...)
+function cg_step(x,ws,b,phase=:start;kwargs...)
     (;dx,r,u,A,ρ,iteration,current,target) = ws.state
     (;reltol,abstol,norm,Pl) = ws.options
     s = u
