@@ -15,7 +15,8 @@ This package provides distributed (a.k.a. partitioned) vectors and sparse matric
 | [![Build Status](https://github.com/PartitionedArrays/PartitionedArrays.jl/workflows/CI/badge.svg)](https://github.com/PartitionedArrays/PartitionedArrays.jl/actions) |
 |**Coverage** |
 | [![Coverage](https://codecov.io/gh/PartitionedArrays/PartitionedArrays.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/PartitionedArrays/PartitionedArrays.jl)|
-
+|**DOI** |
+| [![DOI](https://zenodo.org/badge/319607706.svg)](https://zenodo.org/badge/latestdoi/319607706)|
 
 
 ## Documentation
