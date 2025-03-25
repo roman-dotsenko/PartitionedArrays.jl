@@ -68,6 +68,10 @@ function test_mat(T)
   mul!(y,C,x)
   @test y ≈ A[rows,cols]*x
   @test C*x ≈ A[rows,cols]*x
+  @test nnz(C) == nnz(A[rows,cols])
+
+  sorted_findnz(A) = sort(collect(zip(findnz(A)...)))
+  @test all(map(==,sorted_findnz(C),sorted_findnz(A[rows,cols])))
 
   I = Ti[1,2,5,4,1]
   J = Ti[3,6,1,1,3]
