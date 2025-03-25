@@ -158,6 +158,7 @@ function p_sparse_matrix_tests(distribute)
 
     A = psparse(I,J,V,row_partition,col_partition,split_format=true,assemble=false) |> fetch
     A = psparse(I,J,V,row_partition,col_partition,split_format=true,assemble=true) |> fetch
+    A = psparse(I,J,V,row_partition,col_partition,split_format=false,assemble=true) |> fetch
     A = psparse(I,J,V,row_partition,col_partition) |> fetch
     centralize(A) |> display
     B = A*A
@@ -170,11 +171,11 @@ function p_sparse_matrix_tests(distribute)
     centralize(new_A) |> display
     new_B = new_A * new_A
     @test centralize(new_B) == centralize(new_A) * centralize(new_A)
-
-    # TODO Assembly in non-split_format format not yet implemented
-    #A = psparse(I,J,V,row_partition,col_partition,split_format=false,assemble=true) |> fetch
     
     A,cache = psparse(I,J,V,row_partition,col_partition,reuse=true) |> fetch
+    psparse!(A,V,cache) |> wait
+
+    A,cache = psparse(I,J,V,row_partition,col_partition,split_format=false,reuse=true) |> fetch
     psparse!(A,V,cache) |> wait
 
     copy_I = deepcopy(I)

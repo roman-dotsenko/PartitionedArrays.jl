@@ -1969,7 +1969,7 @@ function psparse_assemble_impl!(B,A,::Type{<:AbstractSparseMatrix},cache)
     function setup_snd(A,cache)
         V_snd = cache.V_snd.data
         k_snd = cache.k_snd.data
-        nz = nonzeros(A_ghost_own)
+        nz = nonzeros(A)
         for p in eachindex(k_snd)
             k = k_snd[p]
             V_snd[p] = nz[k]
@@ -2099,11 +2099,16 @@ function psparse_assemble_impl!(
     end
 end
 
-function psparse_assemble_impl!(f,A,::Type,cache)
+# TODO: The Function type parameter can be removed, it's just needed
+# to avoid ambiguity with the non-inplace methods. 
+# Possible solutions: 
+#  - Use a different name for the inplace methods
+#  - Also add an operator to the non-inplace methods
+function psparse_assemble_impl!(f::Function,A,::Type,cache)
     error("case not implemented")
 end
 
-function psparse_assemble_impl!(f,A,::Type{<:AbstractSparseMatrix},cache)
+function psparse_assemble_impl!(f::Function,A,::Type{<:AbstractSparseMatrix},cache)
     function setup_snd(A,cache)
         V_snd_data = cache.V_snd.data
         k_snd_data = cache.k_snd.data
