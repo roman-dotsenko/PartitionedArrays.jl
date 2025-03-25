@@ -1583,6 +1583,30 @@ function assemble!(B::PSparseMatrix,A::PSparseMatrix,cache)
     psparse_assemble_impl!(B,A,T,cache)
 end
 
+"""
+    assemble!([f,]A::PSparseMatrix;kwargs...)
+"""
+function assemble!(A::PSparseMatrix;kwargs...)
+    assemble!(+,A;kwargs...)
+end
+
+function assemble!(f,A::PSparseMatrix;kwargs...)
+    T = eltype(partition(A))
+    psparse_assemble_impl!(f,A,T;kwargs...)
+end
+
+"""
+    assemble!([f,]A::PSparseMatrix,cache)
+"""
+function assemble!(A::PSparseMatrix,cache)
+    assemble!(+,A,cache)
+end
+
+function assemble!(f,A::PSparseMatrix,cache)
+    T = eltype(partition(A))
+    psparse_assemble_impl!(f,A,T,cache)
+end
+
 function psparse_assemble_impl(A,::Type,rows;kwargs...)
     error("Case not implemented yet")
 end
@@ -1755,6 +1779,132 @@ function psparse_assemble_impl(
     end
 end
 
+function psparse_assemble_impl(
+        A,
+        ::Type{<:AbstractSparseMatrix},
+        rows;
+        reuse=Val(false),
+        assembly_neighbors_options_cols=(;))
+
+    function setup_cache_snd(A,parts_snd,rows_sa,cols_sa)
+        local_to_owner_row = local_to_owner(rows_sa)
+        local_to_global_row = local_to_global(rows_sa)
+        local_to_global_col = local_to_global(cols_sa)
+        me = part_id(rows_sa)
+        owner_to_p = Dict(( owner=>i for (i,owner) in enumerate(parts_snd) ))
+        ptrs = zeros(Int32,length(parts_snd)+1)
+        for (i,_,_) in nziterator(A)
+            owner = local_to_owner_row[i]
+            if owner != me
+                ptrs[owner_to_p[owner]+1] += 1
+            end
+        end
+        length_to_ptrs!(ptrs)
+        Tv = eltype(A)
+        ndata = ptrs[end]-1
+        I_snd_data = zeros(Int,ndata)
+        J_snd_data = zeros(Int,ndata)
+        V_snd_data = zeros(Tv,ndata)
+        k_snd_data = zeros(Int32,ndata)
+        for (k,(i,j,v)) in enumerate(nziterator(A))
+            owner = local_to_owner_row[i]
+            if owner != me
+                p = ptrs[owner_to_p[owner]]
+                I_snd_data[p] = local_to_global_row[i]
+                J_snd_data[p] = local_to_global_col[j]
+                V_snd_data[p] = v
+                k_snd_data[p] = k
+                ptrs[owner_to_p[owner]] += 1
+            end
+        end
+        rewind_ptrs!(ptrs)
+        I_snd = JaggedArray(I_snd_data,ptrs)
+        J_snd = JaggedArray(J_snd_data,ptrs)
+        V_snd = JaggedArray(V_snd_data,ptrs)
+        k_snd = JaggedArray(k_snd_data,ptrs)
+        (;I_snd,J_snd,V_snd,k_snd,parts_snd)
+    end
+    function setup_cache_rcv(I_rcv,J_rcv,V_rcv,parts_rcv)
+        k_rcv_data = zeros(Int32,length(I_rcv.data))
+        k_rcv = JaggedArray(k_rcv_data,I_rcv.ptrs)
+        (;I_rcv,J_rcv,V_rcv,k_rcv,parts_rcv)
+    end
+    function setup_own_triplets(A,cache_rcv,rows_sa,cols_sa)
+        local_to_own_rows = local_to_own(rows_sa)
+        I_sa, J_sa, V_sa = findnz(A)
+        k_own_to_sa = findall(i -> !iszero(local_to_own_rows[i]), I_sa)
+
+        I_own = view(I_sa,k_own_to_sa)
+        I_rcv = cache_rcv.I_rcv.data
+        map_global_to_local!(I_rcv,rows_sa)
+        I = vcat(I_own,I_rcv)
+
+        J_own = view(J_sa,k_own_to_sa)
+        J_rcv = cache_rcv.J_rcv.data
+        map_local_to_global!(J_own,cols_sa)
+        J = vcat(J_own,J_rcv)
+
+        V_own = view(V_sa,k_own_to_sa)
+        V_rcv = cache_rcv.V_rcv.data
+        V = vcat(V_own,V_rcv)
+
+        (I,J,V), J, k_own_to_sa
+    end
+    function finalize_values(A,rows_fa,cols_fa,cache_snd,cache_rcv,triplets,aux)
+        I, J, V = triplets
+        k_own_to_sa = aux
+        I_rcv, J_rcv, k_rcv = cache_rcv.I_rcv.data, cache_rcv.J_rcv.data, cache_rcv.k_rcv.data
+        map_global_to_local!(J,cols_fa)
+        values = compresscoo(typeof(A),I,J,V,length(rows_fa),length(cols_fa))
+
+        k_sa = zeros(Int32,nnz(A))
+        n_own = length(k_own_to_sa)
+        I_own = view(I,1:n_own)
+        J_own = view(J,1:n_own)
+        k_own = view(k_sa,k_own_to_sa)
+        precompute_nzindex!(k_own,values,I_own,J_own)
+
+        n_tot = length(I)
+        I_rcv = view(I,n_own+1:n_tot)
+        J_rcv = view(J,n_own+1:n_tot)
+        precompute_nzindex!(k_rcv,values,I_rcv,J_rcv)
+
+        cache = (;k_sa,cache_snd...,cache_rcv...)
+        values, cache
+    end
+    rows_sa = partition(axes(A,1))
+    cols_sa = partition(axes(A,2))
+    cols = map(remove_ghost,cols_sa)
+    parts_snd, parts_rcv = assembly_neighbors(rows_sa)
+    cache_snd = map(setup_cache_snd,partition(A),parts_snd,rows_sa,cols_sa)
+    I_snd = map(i->i.I_snd,cache_snd)
+    J_snd = map(i->i.J_snd,cache_snd)
+    V_snd = map(i->i.V_snd,cache_snd)
+    graph = ExchangeGraph(parts_snd,parts_rcv)
+    t_I = exchange(I_snd,graph)
+    t_J = exchange(J_snd,graph)
+    t_V = exchange(V_snd,graph)
+    @fake_async begin
+        I_rcv = fetch(t_I)
+        J_rcv = fetch(t_J)
+        V_rcv = fetch(t_V)
+        cache_rcv = map(setup_cache_rcv,I_rcv,J_rcv,V_rcv,parts_rcv)
+        triplets,J,aux = map(setup_own_triplets,partition(A),cache_rcv,rows_sa,cols_sa) |> tuple_of_arrays
+        J_owner = find_owner(cols_sa,J)
+        rows_fa = rows
+        cols_fa = map(union_ghost,cols,J,J_owner)
+        assembly_neighbors(cols_fa;assembly_neighbors_options_cols...)
+        vals_fa, cache = map(finalize_values,partition(A),rows_fa,cols_fa,cache_snd,cache_rcv,triplets,aux) |> tuple_of_arrays
+        assembled = true
+        B = PSparseMatrix(vals_fa,rows_fa,cols_fa,assembled)
+        if !val_parameter(reuse)
+            B
+        else
+            B, cache
+        end
+    end
+end
+
 function psparse_assemble_impl!(B,A,::Type,cache)
     error("case not implemented")
 end
@@ -1812,6 +1962,177 @@ function psparse_assemble_impl!(B,A,::Type{<:AbstractSplitMatrix},cache)
         wait(t)
         map(setup_rcv,partition(B),cache)
         B
+    end
+end
+
+function psparse_assemble_impl!(B,A,::Type{<:AbstractSparseMatrix},cache)
+    function setup_snd(A,cache)
+        V_snd = cache.V_snd.data
+        k_snd = cache.k_snd.data
+        nz = nonzeros(A_ghost_own)
+        for p in eachindex(k_snd)
+            k = k_snd[p]
+            V_snd[p] = nz[k]
+        end
+    end
+    function setup_sa(B,A,cache)
+        setcoofast!(B,nonzeros(A),cache.k_sa)
+    end
+    function setup_rcv(B,cache)
+        V_rcv = cache.V_rcv.data
+        k_rcv = cache.k_rcv.data
+        nz = nonzeros(B)
+        for p in eachindex(k_rcv)
+            k = k_rcv[p]
+            nz[k] += V_rcv[p]
+        end
+    end
+    map(setup_snd,partition(A),cache)
+    parts_snd = map(i->i.parts_snd,cache)
+    parts_rcv = map(i->i.parts_rcv,cache)
+    V_snd = map(i->i.V_snd,cache)
+    V_rcv = map(i->i.V_rcv,cache)
+    graph = ExchangeGraph(parts_snd,parts_rcv)
+    t = exchange!(V_rcv,V_snd,graph)
+    map(setup_sa,partition(B),partition(A),cache)
+    @fake_async begin
+        wait(t)
+        map(setup_rcv,partition(B),cache)
+        B
+    end
+end
+
+function psparse_assemble_impl!(f,A,::Type;kwargs...)
+    error("case not implemented")
+end
+
+function psparse_assemble_impl!(
+    f,
+    A,
+    ::Type{<:AbstractSparseMatrix};
+    reuse=Val(false))
+  
+    function setup_cache_snd(A,parts_snd,rows,cols)
+        local_to_owner_row = local_to_owner(rows)
+        local_to_global_row = local_to_global(rows)
+        local_to_global_col = local_to_global(cols)
+        me = part_id(rows)
+        owner_to_p = Dict(( owner=>i for (i,owner) in enumerate(parts_snd) ))
+        ptrs = zeros(Int32,length(parts_snd)+1)
+        for (i,_,_) in nziterator(A)
+            owner = local_to_owner_row[i]
+            if owner != me
+                ptrs[owner_to_p[owner]+1] += 1
+            end
+        end
+        length_to_ptrs!(ptrs)
+        Tv = eltype(A)
+        ndata = ptrs[end]-1
+        I_snd_data = zeros(Int,ndata)
+        J_snd_data = zeros(Int,ndata)
+        V_snd_data = zeros(Tv,ndata)
+        k_snd_data = zeros(Int32,ndata)
+        for (k,(i,j,v)) in enumerate(nziterator(A))
+            owner = local_to_owner_row[i]
+            if owner != me
+            p = ptrs[owner_to_p[owner]]
+            I_snd_data[p] = local_to_global_row[i]
+            J_snd_data[p] = local_to_global_col[j]
+            V_snd_data[p] = v
+            k_snd_data[p] = k
+            ptrs[owner_to_p[owner]] += 1
+            end
+        end
+        rewind_ptrs!(ptrs)
+        I_snd = JaggedArray(I_snd_data,ptrs)
+        J_snd = JaggedArray(J_snd_data,ptrs)
+        V_snd = JaggedArray(V_snd_data,ptrs)
+        k_snd = JaggedArray(k_snd_data,ptrs)
+        (;I_snd,J_snd,V_snd,k_snd,parts_snd)
+    end
+    function setup_cache_rcv(I_rcv,J_rcv,V_rcv,parts_rcv)
+        k_rcv_data = zeros(Int32,length(I_rcv.data))
+        k_rcv = JaggedArray(k_rcv_data,I_rcv.ptrs)
+        (;I_rcv,J_rcv,V_rcv,k_rcv,parts_rcv)
+    end
+    function finalize_values!(A,rows,cols,cache_snd,cache_rcv)
+        I_rcv_data = cache_rcv.I_rcv.data
+        J_rcv_data = cache_rcv.J_rcv.data
+        V_rcv_data = cache_rcv.V_rcv.data
+        k_rcv_data = cache_rcv.k_rcv.data
+        A_nonzeros = nonzeros(A)
+        map_global_to_local!(I_rcv_data,rows)
+        map_global_to_local!(J_rcv_data,cols)
+        for p in eachindex(k_rcv_data)
+            i = I_rcv_data[p]
+            j = J_rcv_data[p]
+            k = nzindex(A,i,j)
+            @boundscheck @assert k > 0 "The sparsity pattern of the ghost layer is inconsistent"
+            k_rcv_data[p] = k
+            A_nonzeros[k] = f(A_nonzeros[k],V_rcv_data[p])
+        end
+        cache = (;cache_snd...,cache_rcv...)
+        cache
+    end
+    rows = partition(axes(A,1))
+    cols = partition(axes(A,2))
+    parts_snd, parts_rcv = assembly_neighbors(rows)
+    cache_snd = map(setup_cache_snd,partition(A),parts_snd,rows,cols)
+    I_snd = map(i->i.I_snd,cache_snd)
+    J_snd = map(i->i.J_snd,cache_snd)
+    V_snd = map(i->i.V_snd,cache_snd)
+    graph = ExchangeGraph(parts_snd,parts_rcv)
+    t_I = exchange(I_snd,graph)
+    t_J = exchange(J_snd,graph)
+    t_V = exchange(V_snd,graph)
+    @fake_async begin
+        I_rcv = fetch(t_I)
+        J_rcv = fetch(t_J)
+        V_rcv = fetch(t_V)
+        cache_rcv = map(setup_cache_rcv,I_rcv,J_rcv,V_rcv,parts_rcv)
+        cache = map(finalize_values!,partition(A),rows,cols,cache_snd,cache_rcv)
+        if !val_parameter(reuse)
+            A
+        else
+            A, cache
+        end
+    end
+end
+
+function psparse_assemble_impl!(f,A,::Type,cache)
+    error("case not implemented")
+end
+
+function psparse_assemble_impl!(f,A,::Type{<:AbstractSparseMatrix},cache)
+    function setup_snd(A,cache)
+        V_snd_data = cache.V_snd.data
+        k_snd_data = cache.k_snd.data
+        A_nonzeros = nonzeros(A)
+        for p in eachindex(k_snd_data)
+            k = k_snd_data[p]
+            V_snd_data[p] = A_nonzeros[k]
+        end
+    end
+    function setup_rcv(A,cache)
+        V_rcv_data = cache.V_rcv.data
+        k_rcv_data = cache.k_rcv.data
+        A_nonzeros = nonzeros(A)
+        for p in eachindex(k_rcv_data)
+            k = k_rcv_data[p]
+            A_nonzeros[k] = f(A_nonzeros[k],V_rcv_data[p])
+        end
+    end
+    map(setup_snd,partition(A),cache)
+    parts_snd = map(i->i.parts_snd,cache)
+    parts_rcv = map(i->i.parts_rcv,cache)
+    V_snd = map(i->i.V_snd,cache)
+    V_rcv = map(i->i.V_rcv,cache)
+    graph = ExchangeGraph(parts_snd,parts_rcv)
+    t = exchange!(V_rcv,V_snd,graph)
+    @fake_async begin
+        wait(t)
+        map(setup_rcv,partition(A),cache)
+        A
     end
 end
 

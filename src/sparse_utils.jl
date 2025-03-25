@@ -148,6 +148,51 @@ function Base.getindex(a::SubSparseMatrix,i::Integer,j::Integer)
     a.parent[I,J]
 end
 
+function SparseArrays.nnz(a::SubSparseMatrix{T,<:SparseArrays.AbstractSparseMatrixCSC}) where T
+    rows, cols = a.indices
+    invrows, invcols = A.inv_indices
+    parent = a.parent
+    rv = rowvals(parent)
+    n = 0
+    for J in cols
+        for p in nzrange(parent,J)
+            I = rv[p]
+            n += (invrows[I] > 0)
+        end
+    end
+    n
+end
+
+function SparseArrays.findnz(a::SubSparseMatrix{T,<:SparseArrays.AbstractSparseMatrixCSC}) where T
+    rows, cols = a.indices
+    invrows, invcols = A.inv_indices
+    parent = a.parent
+    rv = rowvals(parent)
+    nzv = nonzeros(parent)
+
+    n = nnz(a)
+    Ti = indextype(parent)
+    I = Vector{Ti}(undef,n)
+    J = Vector{Ti}(undef,n)
+    V = Vector{T}(undef,n)
+
+    k = 0
+    for (j,J) in enumerate(cols)
+        for p in nzrange(parent,J)
+            I = rv[p]
+            i = invrows[I]
+            if i > 0
+                k += 1
+                I[k] = i
+                J[k] = j
+                V[k] = nzv[p]
+            end
+        end
+    end
+
+    I,J,V
+end
+
 function LinearAlgebra.mul!(
         C::AbstractVector,
         A::SubSparseMatrix{T,<:SparseArrays.AbstractSparseMatrixCSC} where T,
