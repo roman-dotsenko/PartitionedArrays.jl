@@ -2099,11 +2099,6 @@ function psparse_assemble_impl!(
     end
 end
 
-# TODO: The Function type parameter can be removed, it's just needed
-# to avoid ambiguity with the non-inplace methods. 
-# Possible solutions: 
-#  - Use a different name for the inplace methods
-#  - Also add an operator to the non-inplace methods
 function psparse_assemble_impl!(f::Function,A,::Type,cache)
     error("case not implemented")
 end
