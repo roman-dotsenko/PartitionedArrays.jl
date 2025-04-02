@@ -30,6 +30,8 @@ psystem!
 ```@docs
 assemble(::PSparseMatrix,rows)
 assemble!(::PSparseMatrix,::PSparseMatrix,cache)
+assemble!(::PSparseMatrix)
+assemble!(::PSparseMatrix,cache)
 consistent(::PSparseMatrix,rows)
 consistent!(::PSparseMatrix,::PSparseMatrix,cache)
 ```

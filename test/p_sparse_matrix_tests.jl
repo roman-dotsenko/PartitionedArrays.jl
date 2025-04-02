@@ -141,7 +141,7 @@ function p_sparse_matrix_tests(distribute)
         elseif part == 2
             [3,3,4,6], [3,9,4,2], [10.0,2.0,30.0,2.0]
         elseif part == 3
-            [5,5,6,7], [5,6,6,7], [10.0,2.0,30.0,1.0]
+            [5,5,6,6,6,7], [5,6,2,5,6,7], [10.0,2.0,0.0,0.0,30.0,1.0]
         else
             [9,9,8,10,6], [9,3,8,10,5], [10.0,2.0,30.0,50.0,2.0]
         end
@@ -158,10 +158,14 @@ function p_sparse_matrix_tests(distribute)
 
     A = psparse(I,J,V,row_partition,col_partition,split_format=true,assemble=false) |> fetch
     A = psparse(I,J,V,row_partition,col_partition,split_format=true,assemble=true) |> fetch
+    A = psparse(I,J,V,row_partition,col_partition,split_format=false,assemble=true) |> fetch
     A = psparse(I,J,V,row_partition,col_partition) |> fetch
     centralize(A) |> display
     B = A*A
     @test centralize(B) == centralize(A)*centralize(A)
+
+    A = psparse(I,J,V,row_partition,col_partition,split_format=false,assemble=false) |> fetch
+    assemble!(A) |> wait
 
     copy_I = deepcopy(I)
     copy_J = deepcopy(J)
@@ -170,11 +174,11 @@ function p_sparse_matrix_tests(distribute)
     centralize(new_A) |> display
     new_B = new_A * new_A
     @test centralize(new_B) == centralize(new_A) * centralize(new_A)
-
-    # TODO Assembly in non-split_format format not yet implemented
-    #A = psparse(I,J,V,row_partition,col_partition,split_format=false,assemble=true) |> fetch
     
     A,cache = psparse(I,J,V,row_partition,col_partition,reuse=true) |> fetch
+    psparse!(A,V,cache) |> wait
+
+    A,cache = psparse(I,J,V,row_partition,col_partition,split_format=false,reuse=true) |> fetch
     psparse!(A,V,cache) |> wait
 
     copy_I = deepcopy(I)
@@ -530,5 +534,4 @@ function p_sparse_matrix_tests(distribute)
     B = LinearAlgebra.I-A
 
     @test isa(renumber(A),PSparseMatrix)
-    
 end

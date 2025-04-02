@@ -148,6 +148,98 @@ function Base.getindex(a::SubSparseMatrix,i::Integer,j::Integer)
     a.parent[I,J]
 end
 
+function SparseArrays.nnz(a::SubSparseMatrix{T,<:SparseArrays.AbstractSparseMatrixCSC}) where T
+    rows, cols = a.indices
+    invrows, invcols = a.inv_indices
+    parent = a.parent
+    rv = rowvals(parent)
+    n = 0
+    for J in cols
+        for p in nzrange(parent,J)
+            I = rv[p]
+            n += (invrows[I] > 0)
+        end
+    end
+    n
+end
+
+function SparseArrays.nnz(a::SubSparseMatrix{T,<:SparseMatrixCSR}) where T
+    rows, cols = a.indices
+    invrows, invcols = a.inv_indices
+    parent = a.parent
+    cv = colvals(parent)
+    o = getoffset(parent)
+    n = 0
+    for I in rows
+        for p in nzrange(parent,I)
+            J = cv[p] + o
+            n += (invcols[J] > 0)
+        end
+    end
+    n
+end
+
+function SparseArrays.findnz(a::SubSparseMatrix{T,<:SparseArrays.AbstractSparseMatrixCSC}) where T
+    rows, cols = a.indices
+    invrows, invcols = a.inv_indices
+    parent = a.parent
+    rv = rowvals(parent)
+    nzv = nonzeros(parent)
+
+    n = nnz(a)
+    Ti = indextype(parent)
+    I_vec = Vector{Ti}(undef,n)
+    J_vec = Vector{Ti}(undef,n)
+    V_vec = Vector{T}(undef,n)
+
+    k = 0
+    for (j,J) in enumerate(cols)
+        for p in nzrange(parent,J)
+            I = rv[p]
+            i = invrows[I]
+            if i > 0
+                k += 1
+                I_vec[k] = i
+                J_vec[k] = j
+                V_vec[k] = nzv[p]
+            end
+        end
+    end
+
+    I_vec,J_vec,V_vec
+end
+
+function SparseArrays.findnz(a::SubSparseMatrix{T,<:SparseMatrixCSR}) where T
+    rows, cols = a.indices
+    invrows, invcols = a.inv_indices
+    parent = a.parent
+    cv = colvals(parent)
+    o = getoffset(parent)
+    nzv = nonzeros(parent)
+
+    n = nnz(a)
+    Ti = indextype(parent)
+    I_vec = Vector{Ti}(undef,n)
+    J_vec = Vector{Ti}(undef,n)
+    V_vec = Vector{T}(undef,n)
+
+    k = 0
+    for (i,I) in enumerate(rows)
+        for p in nzrange(parent,I)
+            J = cv[p] + o
+            j = invcols[J]
+            if j > 0
+                k += 1
+                I_vec[k] = i
+                J_vec[k] = j
+                V_vec[k] = nzv[p]
+            end
+        end
+    end
+
+    I_vec,J_vec,V_vec
+end
+
 function LinearAlgebra.mul!(
         C::AbstractVector,
         A::SubSparseMatrix{T,<:SparseArrays.AbstractSparseMatrixCSC} where T,
