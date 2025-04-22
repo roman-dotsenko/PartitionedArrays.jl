@@ -325,7 +325,7 @@ function gather_impl!(
     destination, ::Type{T}) where T <: AbstractVector
     Tv = eltype(snd.item)
     @assert rcv.comm === snd.comm
-    @assert isa(rcv.item,JaggedArray)
+    @assert isa(rcv.item,AbstractJaggedArray)
     @assert eltype(eltype(rcv.item)) == Tv
     comm = snd.comm
     if isa(destination,Integer)
@@ -389,7 +389,7 @@ function scatter_impl!(
     source,::Type{T}) where T<:AbstractVector
     @assert source !== :all "All to all not implemented"
     @assert rcv.comm === snd.comm
-    @assert isa(snd.item,JaggedArray)
+    @assert isa(snd.item,AbstractJaggedArray)
     @assert eltype(eltype(snd.item)) == eltype(rcv.item)
     comm = snd.comm
     root = source - 1
@@ -583,9 +583,9 @@ function exchange_impl!(
     @assert graph.rcv.comm === graph.rcv.comm
     @assert graph.rcv.comm === graph.snd.comm
     comm = graph.rcv.comm
-    data_snd = JaggedArray(snd.item)
+    data_snd = jagged_array(snd.item)
     data_rcv = rcv.item
-    @assert isa(data_rcv,JaggedArray)
+    @assert isa(data_rcv,AbstractJaggedArray)
     req_all = setup
     ireq = 0
     state = (snd,rcv)
