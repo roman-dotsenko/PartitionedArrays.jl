@@ -195,4 +195,22 @@ The returned object stores references to the given inputs.
 jagged_array(data,ptrs) = GenericJaggedArray(data,ptrs)
 jagged_array(data::Vector,ptrs::Vector) = JaggedArray(data,ptrs)
 
+"""
+    jagged_array(a)
+
+Create a `JaggedArray` or a `GenericJaggedArray` from a given vector of vectors `a`.
+Return `a` if it is already a `JaggedArray` or a `GenericJaggedArray`.
+"""
+function jagged_array(a)
+    JaggedArray(a)
+end
+function jagged_array(a::GenericJaggedArray)
+    a
+end
+
+
+
+
+
+
 
