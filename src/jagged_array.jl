@@ -45,6 +45,8 @@ Return `a.data`
 """
 getdata(a) = a.data
 
+abstract type AbstractJaggedArray{T} <: AbstractVector{T} end
+
 """
     struct GenericJaggedArray{V,A,B}
 
@@ -61,7 +63,7 @@ object.
 
 Given `a::GenericJaggedArray`, `V` is `typeof(view(a.data,a.ptrs[i]:(a.ptrs[i+1]-1)))`.
 """
-struct GenericJaggedArray{T,A,B} <: AbstractVector{T}
+struct GenericJaggedArray{T,A,B} <: AbstractJaggedArray{T}
   data::A
   ptrs::B
   @doc """
@@ -104,7 +106,7 @@ range `a.ptrs[i]:(a.ptrs[i+1]-1)`. The number of inner vectors (i.e. `length(a)`
 Given `a::JaggedArray`, `V` is `typeof(view(a.data,a.ptrs[i]:(a.ptrs[i+1]-1)))`.
 
 """
-struct JaggedArray{T,Ti} <: AbstractVector{SubArray{T,1,Vector{T},Tuple{UnitRange{Ti}},true}}
+struct JaggedArray{T,Ti} <: AbstractJaggedArray{SubArray{T,1,Vector{T},Tuple{UnitRange{Ti}},true}}
   data::Vector{T}
   ptrs::Vector{Ti}
   @doc """
