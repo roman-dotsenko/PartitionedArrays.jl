@@ -17,7 +17,7 @@ y .= 0
 p = PS.linear_problem(y,A,b)
 Pl = PS.preconditioner(PS.amg,p)
 s = PS.cg(p;verbose=true,Pl)
-s = PS.solve(s)
+@time s = PS.solve(s)
 @test x ≈ PS.solution(p)
 s = PS.update(s,matrix=2*A)
 s = PS.solve(s)
@@ -37,11 +37,12 @@ y = similar(x)
 y .= 0
 p = PS.linear_problem(y,A,b)
 Pl = PS.preconditioner(PS.amg,p)
-s = PS.cg(p;verbose=true,Pl)
+@time s = PS.cg(p;verbose=true,Pl)
 s = PS.solve(s)
 @test x ≈ PS.solution(p)
 s = PS.update(s,matrix=2*A)
 s = PS.solve(s)
 @test x ≈ 2*PS.solution(p)
+
 
 end # module
