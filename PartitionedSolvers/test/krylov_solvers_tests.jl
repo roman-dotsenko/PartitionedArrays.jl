@@ -4,6 +4,7 @@ using Test
 import PartitionedSolvers as PS
 import PartitionedArrays as PA
 import IterativeSolvers
+import BenchmarkTools
 
 n = 10
 nodes_per_dir = (n,n,n)
