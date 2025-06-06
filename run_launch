@@ -1,0 +1,13 @@
+#!/bin/bash
+
+NUM_PROCS=4
+
+#mpiexec -np $NUM_PROCS julia --project=. -e 'include(joinpath("test", "minres_das_tests.jl"))'
+
+# Use MPI.jl's mpiexec function to launch the test
+julia --project=. -e "
+using MPI
+MPI.mpiexec() do cmd
+    run(\`\$cmd -np $NUM_PROCS julia --project=. -e 'include(joinpath(\"test\",\"minres_das_tests.jl\"))'\`)
+end
+"

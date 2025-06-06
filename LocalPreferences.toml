@@ -1,0 +1,4 @@
+[PetscCall]
+PetscInt = "Int64"
+PetscScalar = "Float64"
+libpetsc_provider = "PETSc_jll"
