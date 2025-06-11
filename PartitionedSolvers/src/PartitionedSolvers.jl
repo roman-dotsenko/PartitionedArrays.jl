@@ -11,7 +11,7 @@ using SparseMatricesCSR
 
 include("interfaces.jl")
 include("wrappers.jl")
-include("krylov_solvers_new.jl")
+include("krylov_solvers_minres.jl")
 include("smoothers.jl")
 include("amg.jl")
 include("nonlinear_solvers.jl")

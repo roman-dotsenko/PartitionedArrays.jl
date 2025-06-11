@@ -363,6 +363,14 @@ function minres_step(x, ws, b, phase=:start; kwargs...)
     copyto!(p0, s1)
     mul!(s0, A_mat, p0)
 
+    # Orthogonalization coefficients (β1, β2)
+    # Note: The denominators for β1 and β2 are based on the original MINRES formulation.
+    # alpha_den (dot(s1,s1)) is ||A*p1_current||^2 if p1 is normalized, or (A*p1)^T (A*p1)
+    # This was used for β1 in the original code.
+    #den_s1_s1 = dot(s1,s1) 
+    #beta1_num = dot(s0, s1) # s0 is A*(A*p1_current), s1 is A*p1_current
+    #β1 = ifelse(iszero(den_s1_s1), zero(eltype(r)), beta1_num / den_s1_s1)
+
     beta1_num = dot(s0, s1)
     β1 = ifelse(iszero(alpha_den), zero(eltype(r)), beta1_num / alpha_den) # Reuse alpha_den
 
@@ -376,6 +384,14 @@ function minres_step(x, ws, b, phase=:start; kwargs...)
 
         axpy!(-β2, p2, p0)
         axpy!(-β2, s2, s0)
+    end
+    
+    # If ldiv!(p0, Pl, p0) is not safe for the specific Pl (e.g., iterative solver Pl),
+    # a temporary vector would be needed: temp = copy(p0); ldiv!(p0, Pl, temp).
+    # For now, assume ldiv!(p0, Pl, p0) is acceptable.
+    if Pl !== nothing && Pl !== identity # Add check if Pl is effective
+        ldiv!(p0, Pl, p0) # p0 = Pl \ p0 (where p0 was q_k)
+        mul!(s0, A_mat, p0) # Recompute s0 = A * (new preconditioned p0)
     end
 
     current_norm = norm_func(r) # Use norm_func
@@ -391,48 +407,65 @@ function minres_step(x, ws, b, phase=:start; kwargs...)
     return x, ws, phase
 end
 
-#function minres_solve!(A, b, x0, tol)
-#    x  = copy(x0)
-#    r  = b .- A * x
-#    p0 = copy(r)
-#    s0 = A * p0
-#    p1 = copy(p0)
-#    s1 = copy(s0)
-#
-#    for iter in 1:1000
-#        # shift the p‐ and s‐sequences
-#        p2, p1 = p1, p0
-#        s2, s1 = s1, s0
-#
-#        # step length
-#        α = dot(r, s1) / dot(s1, s1)
-#
-#        # update solution and residual
-#        @. x += α * p1
-#        @. r -= α * s1
-#
-#        # check convergence
-#        if dot(r, r) < tol^2
-#            break
-#        end
-#
-#        # build new p0, s0
-#        p0 = copy(s1)
-#        s0 = A * s1
-#
-#        β1 = dot(s0, s1) / dot(s1, s1)
-#        @. p0 -= β1 * p1
-#        @. s0 -= β1 * s1
-#
-#        if iter > 1
-#            β2 = dot(s0, s2) / dot(s2, s2)
-#            @. p0 -= β2 * p2
-#            @. s0 -= β2 * s2
-#        end
-#    end
-#
-#    return x, r
-#end
+function minres_solve!(A, b, x0, tol)
+    x  = copy(x0)
+    r  = b .- A * x
+    p0 = copy(r)
+    s0 = A * p0
+    p1 = copy(p0)
+    s1 = copy(s0)
+
+    for iter in 1:1000
+        # shift the p‐ and s‐sequences
+        p2, p1 = p1, p0
+        s2, s1 = s1, s0
+
+        # step length
+        α = dot(r, s1) / dot(s1, s1)
+
+        # update solution and residual
+        @. x += α * p1
+        @. r -= α * s1
+
+        # check convergence
+        if dot(r, r) < tol^2
+            break
+        end
+
+        # build new p0, s0
+        p0 = copy(s1)
+        s0 = A * s1
+
+        β1 = dot(s0, s1) / dot(s1, s1)
+        @. p0 -= β1 * p1
+        @. s0 -= β1 * s1
+
+        if iter > 1
+            β2 = dot(s0, s2) / dot(s2, s2)
+            @. p0 -= β2 * p2
+            @. s0 -= β2 * s2
+        end
+        
+        #if iter == 2
+        #    println("--- minres_solve! after 1st iteration ---")
+        #    println("x: ", x)
+        #    println("r: ", r)
+        #    println("p0 (new p_k+1): ", p0)
+        #    println("p1 (p_k): ", p1)
+        #    println("p2 (p_k-1, from start of iter): ", iter > 1 ? p2 : "N/A or initial p2")
+        #    println("s0 (new A*p_k+1): ", s0)
+        #    println("s1 (A*p_k): ", s1)
+        #    println("s2 (A*p_k-1, from start of iter): ", iter > 1 ? s2 : "N/A or initial s2")
+        #    println("α: ", α)
+        #    println("β1: ", β1)
+        #    println("β2: ", iter > 1 ? β2 : "N/A (not computed in 1st iter)")
+        #    println("--------------------------------------")
+        #end
+
+    end
+
+    return x, r
+end
 
 
 # 1. Compare the wiki solver first converge step with the AI developed solver, make sure they are the same. Make sure there are no allocations.

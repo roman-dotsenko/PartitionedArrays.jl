@@ -7,7 +7,7 @@ import PartitionedArrays as PA
 import IterativeSolvers
 import LinearAlgebra
 
-tol = 1e-7
+tol = 1e-8
 
 ## Comparison of the PartitionedSolvers.minres with interative minres, uncomment prints to test. The prints should be simmilar.
 # Simple MINRES test
@@ -37,7 +37,7 @@ tol = 1e-7
 #
 #@test LinearAlgebra.norm(A2 * PS.solution(p) - b2) <= tol # Check residual norm
 
-n = 10
+n = 50
 nodes_per_dir = (n,n,n)
 args = PA.laplacian_fem(nodes_per_dir)
 A = PA.sparse_matrix(args...)

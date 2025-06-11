@@ -378,7 +378,8 @@ function minres_state(p)
     # Matrix estimates
     anorm = zero(T)
     acond = one(T)
-    gmin = zero(T)
+    gmin = typemax(T) # Initialize gmin to a large value
+    gmin_prev = typemax(T) # Initialize gmin_prev to a large value
     
     # Residual tracking
     phi = zero(T)
@@ -406,7 +407,8 @@ function minres_state(p)
                 dltan, eplnn, gama, gamal, gamal2,
                 eta, etal, etal2, vepln, veplnl, veplnl2,
                 ul, ul2, ul3, ul4, u, xnorm, xl2norm,
-                anorm, acond, gmin, phi, tau, taul, taul2,
+                anorm, acond, gmin, gmin_prev, # Added gmin_prev
+                phi, tau, taul, taul2,
                 qlpiter, minres_mode,
                 gamal_qlp, vepln_qlp, gama_qlp, ul_qlp, u_qlp,
                 iteration, current, target)
@@ -462,6 +464,7 @@ struct MinresState{V1,V2,V3,V4,V5,V6,V7,M,T} <: AbstractType
     anorm::T
     acond::T
     gmin::T
+    gmin_prev::T # Added gmin_prev
     
     # Residual tracking
     phi::T
@@ -508,7 +511,7 @@ function update(o::MinresState; kwargs...)
         get_field(:vepln), get_field(:veplnl), get_field(:veplnl2),
         get_field(:ul), get_field(:ul2), get_field(:ul3), get_field(:ul4),
         get_field(:u), get_field(:xnorm), get_field(:xl2norm),
-        get_field(:anorm), get_field(:acond), get_field(:gmin),
+        get_field(:anorm), get_field(:acond), get_field(:gmin), get_field(:gmin_prev), # Added gmin_prev
         get_field(:phi), get_field(:tau), get_field(:taul), get_field(:taul2),
         get_field(:qlpiter), get_field(:minres_mode),
         get_field(:gamal_qlp), get_field(:vepln_qlp), get_field(:gama_qlp),
@@ -606,11 +609,20 @@ function minres_start(x, ws, b, norm, reltol, abstol, Pl, shift)
     return x, ws_updated, phase
 end
 
-function minres_iterate(x, ws, b, norm, Pl, shift, maxxnorm, acondlim, trancond)
+function minres_iterate(x, ws, b, norm_fn, Pl, shift, maxxnorm, acondlim, trancond) # Changed norm to norm_fn to avoid conflict
     state = ws.state
+    options = ws.options # Get options for reltol etc.
+    T = real(eltype(x))
+    eps_T = eps(T)
+
     (;v, r1, r2, r3, w, wl, wl2, A) = state
     (;beta, betan, phi, tau, cs, sn, iteration) = state
     (;minres_mode, qlpiter) = state
+    
+    # Store current gmin to become gmin_prev in the next state update
+    # This is gmin_{k-1} which will be passed as gmin_prev for iteration k+1
+    gmin_k_minus_1 = state.gmin 
+
       # Update iteration counter
     iteration += 1
     
@@ -737,20 +749,25 @@ function minres_iterate(x, ws, b, norm, Pl, shift, maxxnorm, acondlim, trancond)
         ul = state.ul
     end
     
-    xnorm_tmp = norm([state.xl2norm, ul2, ul])
+    xnorm_tmp = norm_fn([state.xl2norm, ul2, ul])
     
-    if abs(gama) > eps(real(eltype(x))) && xnorm_tmp < maxxnorm
+    local system_appears_singular = false
+    if abs(gama) > eps_T && xnorm_tmp < maxxnorm
         u = (tau - eta * ul2 - vepln * ul) / gama
-        if norm([xnorm_tmp, u]) > maxxnorm
-            u = zero(real(eltype(x)))
-            # Set flag for xnorm exceeded
-        end    else
-        u = zero(real(eltype(x)))
-        # Set flag for singular system
+        if norm_fn([xnorm_tmp, u]) > maxxnorm
+            u = zero(T)
+            # This condition will be checked later by xnorm >= maxxnorm
+        end
+    else
+        u = zero(T)
+        if abs(gama) <= eps_T
+            system_appears_singular = true # Flag this
+        end
+        # If xnorm_tmp >= maxxnorm, u is also zero, xnorm check will handle it.
     end
     
-    xl2norm = norm([state.xl2norm, ul2])
-    xnorm = norm([xl2norm, ul, u])
+    xl2norm = norm_fn([state.xl2norm, ul2])
+    xnorm = norm_fn([xl2norm, ul, u])
     
     # DEBUG: Print xnorm and maxxnorm values
     if iteration <= 10 || iteration % 10 == 0
@@ -760,18 +777,29 @@ function minres_iterate(x, ws, b, norm, Pl, shift, maxxnorm, acondlim, trancond)
     end
     
     # Estimate condition number and norms
-    pnorm = norm([betal, alfa, betan])
-    abs_gama = abs(gama)
-    anorml = state.anorm
-    anorm = max(state.anorm, pnorm, gamal, abs_gama)
+    pnorm = norm_fn([betal, alfa, betan])
+    abs_gama_curr = abs(gama) # gama from current Q_k
+    abs_gamal_curr = abs(gamal) # gamal from current P_{k-1,k} (after sym_givens for P_{k-1,k})
     
+    anorml = state.anorm # Store previous anorm, though not explicitly used in MATLAB's Anorm update line
+    anorm = max(state.anorm, pnorm, abs_gamal_curr, abs_gama_curr)
+    
+    local new_calculated_gmin
     if iteration == 1
-        gmin = gama
+        new_calculated_gmin = abs_gama_curr # abs(gama) from Q_1
     else
-        gmin = min(state.gmin, gamal, abs_gama)
+        # state.gmin_prev is gmin from k-2 (passed from previous iteration's gmin_k_minus_1)
+        # abs_gamal_curr is |γL_k|
+        # abs_gama_curr is |γ_k| (γ_k from Q_k, but after P_{k-1,k} application)
+        # The 'gama' used in P_{k-1,k} (SymGivens2(gamal, dlta)) is γ_k from Q_k before P_{k-1,k}
+        # The 'gama' in SymGivens2(gbar, betan) is γ_k from Q_k.
+        # The 'gamal' in SymGivens2(gamal, dlta) is γL_k from P_{k-1,k}.
+        # So, abs_gama_curr is correct for |γ_k| after P_{k-1,k}
+        # And abs_gamal_curr is correct for |γL_k|
+        new_calculated_gmin = min(state.gmin_prev, abs_gamal_curr, abs_gama_curr)
     end
     
-    acond = anorm / gmin
+    acond = (new_calculated_gmin > eps_T) ? (anorm / new_calculated_gmin) : typemax(T)
     
     # Decide between MINRES and MINRES-QLP mode
     should_switch = (acond >= trancond) && minres_mode && (qlpiter == 0)
@@ -879,25 +907,82 @@ function minres_iterate(x, ws, b, norm, Pl, shift, maxxnorm, acondlim, trancond)
       # Update residual norm estimate
     rnorm = phi
     current = rnorm
-    # Check convergence using correct MATLAB formula
-    relres = rnorm / (anorm * xnorm + state.beta1)
-    converged = relres <= ws.options.reltol
-    
-    if converged || iteration >= ws.options.iterations
+
+    # Determine phase based on stopping criteria
+    phase = :advance # Default phase
+
+    @show rnorm
+    # Primary convergence for Ax=b
+    # Add eps_T to denominator for numerical stability, similar to MATLAB's beta1 + 1e-50
+    converged_relres_val = rnorm / (anorm * xnorm + state.beta1 + eps_T) 
+    if converged_relres_val <= options.reltol
+        @printf "Converged: relative residual = %.2e" converged_relres_val
         phase = :stop
-    else
-        phase = :advance
+    end
+
+    # Max iterations
+    if phase === :advance && iteration >= options.iterations
+        @printf "Reached max iterations: %d" options.iterations
+        phase = :stop
+    end
+
+    # xnorm exceeded maxxnorm
+    if phase === :advance && xnorm >= maxxnorm
+        @printf "xnorm exceeded maxxnorm: %.2e >= %.2e" xnorm maxxnorm
+        phase = :stop
+    end
+    
+    # Acond exceeded Acondlim
+    if phase === :advance && acond >= acondlim
+        @printf "Acond exceeded acondlim: %.2e >= %.2e" acond acondlim
+        phase = :stop
+    end
+
+    # Eigenvector / Null-vector check (MATLAB Flag 5)
+    if phase === :advance
+        # Check if beta1 is effectively zero to avoid issues with epsx/beta1
+        is_beta1_zero = abs(state.beta1) < eps_T 
+        
+        if !is_beta1_zero
+            epsx = anorm * xnorm * eps_T
+            if epsx >= state.beta1 
+                @printf "Detected eigenvector or null vector condition: epsx = %.2e, beta1 = %.2e" epsx state.beta1
+                phase = :stop 
+            end
+        elseif xnorm > eps_T # beta1 is zero, check if x is a non-trivial null vector
+            @printf "Detected non-trivial null vector condition: xnorm = %.2e" xnorm
+            phase = :stop
+        end
+    end
+
+    # Singular system indicated by u calculation (MATLAB Flag 9)
+    if phase === :advance && system_appears_singular
+        @printf "Detected singular system condition: gama = %.2e" abs(gama)
+        phase = :stop
+    end
+    
+    # Lanczos breakdown (betan is small)
+    # This is partially handled by the early exit for iter==1. This is for subsequent iterations.
+    if phase === :advance && betan < eps_T 
+        if abs(alfa) < eps_T 
+            @printf "Lanczos breakdown: betan = %.2e, alfa = %.2e" betan alfa
+            phase = :stop 
+        else
+            @printf "Lanczos breakdown: betan = %.2e, but alfa = %.2e is non-zero" betan alfa
+            phase = :stop
+        end
     end
     
     # Update state
     ws_updated = update(ws;
-        iteration, current,
+        iteration, current, phase, # Pass the determined phase
         beta, betal, betan, alfa,
         cs, sn, cr1, sr1, cr2, sr2,
         dltan, eplnn, gama, gamal, gamal2,
         eta, etal, etal2, vepln, veplnl, veplnl2,
         ul, ul2, ul3, ul4, u, xnorm, xl2norm,
-        anorm, acond, gmin, phi, tau, taul, taul2,
+        anorm, acond, gmin = new_calculated_gmin, gmin_prev = gmin_k_minus_1, # Pass new gmin and new gmin_prev
+        phi, tau, taul, taul2,
         qlpiter=new_qlpiter, minres_mode=new_minres_mode,
         gamal_qlp, vepln_qlp, gama_qlp, ul_qlp, u_qlp
     )

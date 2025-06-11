@@ -1,10 +1,18 @@
-module PartitionedArraysRunTests
+module PartitionedSolversTests
 
+using PartitionedArrays
+using PartitionedSolvers
 using Test
 
-@testset "jagged_array" begin include("jagged_array_tests.jl") end
-@testset "sparse_utils" begin include("sparse_utils_tests.jl") end
-@testset "debug_array" begin include("debug_array/runtests.jl") end
-@testset "mpi_array" begin include("mpi_array/runtests.jl") end
+@testset "PartitionedSolvers" begin
+    #@testset "interfaces" begin include("interfaces_tests.jl") end
+    #@testset "wrappers" begin include("wrappers_tests.jl") end
+    #@testset "nonlinear_solvers" begin include("nonlinear_solvers_tests.jl") end
+    #@testset "ode_solvers" begin include("ode_solvers_tests.jl") end
+    #@testset "smoothers" begin include("smoothers_tests.jl") end
+    #@testset "krylov_solvers" begin include("krylov_solvers_tests.jl") end
+    @testset "minres_solver" begin include("minres_solver_tests.jl") end
+    #@testset "amg" begin include("amg_tests.jl") end
+end
 
 end # module
